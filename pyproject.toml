@@ -1,0 +1,43 @@
+[project]
+name = "teste-validator"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "fastapi>=0.128.0",
+  "paddleocr>=2.7.0",
+  "paddlepaddle>=2.6.0",
+  "python-multipart>=0.0.9",
+  "pyyaml>=6.0.1",
+  "uvicorn>=0.40.0",
+]
+
+[project.optional-dependencies]
+pdf = [
+  "pdf2image>=1.17.0",
+]
+
+[tool.teste_validator.ocr]
+# Defaults tuned for complex scanned documents.
+lang = "pt"
+ocr_version = "PP-OCRv5"
+device = "cpu"
+# Não precisamos de orientação do documento aqui; só OCR + bbox.
+use_doc_orientation_classify = false
+use_doc_unwarping = false
+use_layout_detection = false
+# Precisamos da classificação de ângulo por linha (textline orientation).
+use_textline_orientation = true
+textline_orientation_batch_size = 8
+# Bom equilíbrio qualidade/velocidade em server CPU potente (Mac).
+text_det_limit_side_len = 1536
+text_det_limit_type = "max"
+text_det_thresh = 0.3
+text_det_box_thresh = 0.6
+text_det_unclip_ratio = 2.0
+rec_image_shape = "3,48,320"
+max_text_length = 50
+text_rec_score_thresh = 0.0
+text_recognition_batch_size = 8
+disable_model_source_check = true
