@@ -1,6 +1,7 @@
 import io
 import logging
 import os
+import tempfile
 import time
 import tomllib
 from functools import lru_cache
@@ -12,6 +13,8 @@ from fastapi import FastAPI, File, HTTPException, UploadFile
 from pydantic import BaseModel
 from PIL import Image
 from starlette.concurrency import run_in_threadpool
+
+from detectors.object_detection import ObjectDetection
 
 # Avoid PaddleOCR trying to check model hosters at import time (network is optional).
 os.environ.setdefault("DISABLE_MODEL_SOURCE_CHECK", "True")
@@ -221,3 +224,181 @@ async def parse_image(file: UploadFile = File(...)) -> OcrResponse:
         len(items),
     )
     return OcrResponse(items=items)
+
+
+@app.post("/consumo", response_model=OcrResponse)
+async def consumo(file: UploadFile = File(...)) -> OcrResponse:
+    """
+    Endpoint para detectar e fazer OCR na área de consumo.
+    Primeiro detecta a região usando o modelo consumption.pt, recorta a imagem e depois faz OCR.
+    """
+    t_req = time.perf_counter()
+    mem0 = _mem_snapshot()
+    image_bytes = await file.read()
+    if not image_bytes:
+        raise HTTPException(status_code=400, detail="Empty file")
+
+    # Salvar imagem temporariamente para o detector
+    temp_image_file = None
+    temp_crop_file = None
+    detector = None
+    
+    try:
+        # Criar arquivo temporário para a imagem original
+        temp_image_file = tempfile.NamedTemporaryFile(
+            suffix=Path(file.filename or "image").suffix or ".png",
+            delete=False
+        )
+        temp_image_file.write(image_bytes)
+        temp_image_file.close()
+        
+        # Detectar e recortar área de consumo
+        detector = ObjectDetection()
+        crop_path = await run_in_threadpool(
+            detector.detect_and_crop_consumption, 
+            temp_image_file.name
+        )
+        
+        if not crop_path or not os.path.exists(crop_path):
+            raise HTTPException(
+                status_code=404, 
+                detail="Não foi possível detectar a área de consumo na imagem"
+            )
+        
+        temp_crop_file = crop_path
+        
+        # Fazer OCR na imagem recortada
+        ocr = _get_ocr()
+        t_decode = time.perf_counter()
+        
+        # Ler a imagem recortada
+        with open(crop_path, "rb") as f:
+            crop_bytes = f.read()
+        
+        img = _bytes_to_bgr_image(crop_bytes)
+        decode_s = time.perf_counter() - t_decode
+
+        pred_kwargs: dict[str, Any] = {
+            "use_doc_unwarping": False,
+            "use_doc_orientation_classify": False,
+            "use_textline_orientation": True,
+        }
+        pred = await run_in_threadpool(lambda: ocr.predict(img, **pred_kwargs))
+        items = _extract_items(pred)
+
+        mem1 = _mem_snapshot()
+        logger.info(
+            "Consumo OCR request filename=%s bytes=%d decode=%.3fs total=%.3fs mem=%s delta=%s items=%d",
+            file.filename,
+            len(image_bytes),
+            decode_s,
+            time.perf_counter() - t_req,
+            mem1,
+            _mem_delta(mem0, mem1),
+            len(items),
+        )
+        
+        return OcrResponse(items=items)
+        
+    finally:
+        # Limpar arquivos temporários
+        if temp_image_file and os.path.exists(temp_image_file.name):
+            try:
+                os.unlink(temp_image_file.name)
+            except Exception:
+                pass
+        
+        if detector:
+            try:
+                detector.cleanup_temp_files()
+            except Exception:
+                pass
+
+
+@app.post("/fature-cliente-info", response_model=OcrResponse)
+async def fature_cliente_info(file: UploadFile = File(...)) -> OcrResponse:
+    """
+    Endpoint para detectar e fazer OCR na área de informações do cliente.
+    Primeiro detecta a região usando o modelo customer_data_detector.pt, recorta a imagem e depois faz OCR.
+    """
+    t_req = time.perf_counter()
+    mem0 = _mem_snapshot()
+    image_bytes = await file.read()
+    if not image_bytes:
+        raise HTTPException(status_code=400, detail="Empty file")
+
+    # Salvar imagem temporariamente para o detector
+    temp_image_file = None
+    temp_crop_file = None
+    detector = None
+    
+    try:
+        # Criar arquivo temporário para a imagem original
+        temp_image_file = tempfile.NamedTemporaryFile(
+            suffix=Path(file.filename or "image").suffix or ".png",
+            delete=False
+        )
+        temp_image_file.write(image_bytes)
+        temp_image_file.close()
+        
+        # Detectar e recortar área de dados do cliente
+        detector = ObjectDetection()
+        crop_path = await run_in_threadpool(
+            detector.detect_and_crop_customer_data, 
+            temp_image_file.name
+        )
+        
+        if not crop_path or not os.path.exists(crop_path):
+            raise HTTPException(
+                status_code=404, 
+                detail="Não foi possível detectar a área de dados do cliente na imagem"
+            )
+        
+        temp_crop_file = crop_path
+        
+        # Fazer OCR na imagem recortada
+        ocr = _get_ocr()
+        t_decode = time.perf_counter()
+        
+        # Ler a imagem recortada
+        with open(crop_path, "rb") as f:
+            crop_bytes = f.read()
+        
+        img = _bytes_to_bgr_image(crop_bytes)
+        decode_s = time.perf_counter() - t_decode
+
+        pred_kwargs: dict[str, Any] = {
+            "use_doc_unwarping": False,
+            "use_doc_orientation_classify": False,
+            "use_textline_orientation": True,
+        }
+        pred = await run_in_threadpool(lambda: ocr.predict(img, **pred_kwargs))
+        items = _extract_items(pred)
+
+        mem1 = _mem_snapshot()
+        logger.info(
+            "Fature Cliente Info OCR request filename=%s bytes=%d decode=%.3fs total=%.3fs mem=%s delta=%s items=%d",
+            file.filename,
+            len(image_bytes),
+            decode_s,
+            time.perf_counter() - t_req,
+            mem1,
+            _mem_delta(mem0, mem1),
+            len(items),
+        )
+        
+        return OcrResponse(items=items)
+        
+    finally:
+        # Limpar arquivos temporários
+        if temp_image_file and os.path.exists(temp_image_file.name):
+            try:
+                os.unlink(temp_image_file.name)
+            except Exception:
+                pass
+        
+        if detector:
+            try:
+                detector.cleanup_temp_files()
+            except Exception:
+                pass
