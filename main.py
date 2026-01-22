@@ -171,6 +171,28 @@ def _mem_delta(before: dict[str, int], after: dict[str, int]) -> dict[str, int]:
     return out
 
 
+def _format_bytes(bytes_value: int) -> str:
+    """Formata bytes em formato legível (B, KB, MB, GB)"""
+    for unit in ['B', 'KB', 'MB', 'GB', 'TB']:
+        if bytes_value < 1024.0:
+            return f"{bytes_value:.2f} {unit}"
+        bytes_value /= 1024.0
+    return f"{bytes_value:.2f} PB"
+
+
+def _format_memory(mem_dict: dict[str, int]) -> str:
+    """Formata dicionário de memória em string legível"""
+    parts = []
+    if "rss_bytes" in mem_dict:
+        parts.append(f"RSS={_format_bytes(mem_dict['rss_bytes'])}")
+    if "ru_maxrss_kb" in mem_dict:
+        # ru_maxrss_kb está em KB, converter para bytes primeiro
+        kb_value = mem_dict["ru_maxrss_kb"]
+        bytes_value = kb_value * 1024
+        parts.append(f"MaxRSS={_format_bytes(bytes_value)}")
+    return ", ".join(parts) if parts else "N/A"
+
+
 app = FastAPI(title="teste-validator")
 
 
@@ -181,11 +203,12 @@ async def _startup() -> None:
     mem0 = _mem_snapshot()
     _get_ocr()
     mem1 = _mem_snapshot()
+    mem_delta = _mem_delta(mem0, mem1)
     logger.info(
         "OCR model loaded in %.2fs mem=%s delta=%s",
         time.perf_counter() - t0,
-        mem1,
-        _mem_delta(mem0, mem1),
+        _format_memory(mem1),
+        _format_memory(mem_delta),
     )
 
 
@@ -212,6 +235,7 @@ async def parse_image(file: UploadFile = File(...)) -> OcrResponse:
     items = _extract_items(pred)
 
     mem1 = _mem_snapshot()
+    mem_delta = _mem_delta(mem0, mem1)
     logger.info(
         "OCR request filename=%s content_type=%s bytes=%d decode=%.3fs total=%.3fs mem=%s delta=%s items=%d",
         file.filename,
@@ -219,8 +243,8 @@ async def parse_image(file: UploadFile = File(...)) -> OcrResponse:
         len(image_bytes),
         decode_s,
         time.perf_counter() - t_req,
-        mem1,
-        _mem_delta(mem0, mem1),
+        _format_memory(mem1),
+        _format_memory(mem_delta),
         len(items),
     )
     return OcrResponse(items=items)
@@ -287,14 +311,15 @@ async def consumo(file: UploadFile = File(...)) -> OcrResponse:
         items = _extract_items(pred)
 
         mem1 = _mem_snapshot()
+        mem_delta = _mem_delta(mem0, mem1)
         logger.info(
             "Consumo OCR request filename=%s bytes=%d decode=%.3fs total=%.3fs mem=%s delta=%s items=%d",
             file.filename,
             len(image_bytes),
             decode_s,
             time.perf_counter() - t_req,
-            mem1,
-            _mem_delta(mem0, mem1),
+            _format_memory(mem1),
+            _format_memory(mem_delta),
             len(items),
         )
         
@@ -315,8 +340,8 @@ async def consumo(file: UploadFile = File(...)) -> OcrResponse:
                 pass
 
 
-@app.post("/fature-cliente-info", response_model=OcrResponse)
-async def fature_cliente_info(file: UploadFile = File(...)) -> OcrResponse:
+@app.post("/dados-cliente", response_model=OcrResponse)
+async def fatura_cliente_info(file: UploadFile = File(...)) -> OcrResponse:
     """
     Endpoint para detectar e fazer OCR na área de informações do cliente.
     Primeiro detecta a região usando o modelo customer_data_detector.pt, recorta a imagem e depois faz OCR.
@@ -376,14 +401,15 @@ async def fature_cliente_info(file: UploadFile = File(...)) -> OcrResponse:
         items = _extract_items(pred)
 
         mem1 = _mem_snapshot()
+        mem_delta = _mem_delta(mem0, mem1)
         logger.info(
             "Fature Cliente Info OCR request filename=%s bytes=%d decode=%.3fs total=%.3fs mem=%s delta=%s items=%d",
             file.filename,
             len(image_bytes),
             decode_s,
             time.perf_counter() - t_req,
-            mem1,
-            _mem_delta(mem0, mem1),
+            _format_memory(mem1),
+            _format_memory(mem_delta),
             len(items),
         )
         
